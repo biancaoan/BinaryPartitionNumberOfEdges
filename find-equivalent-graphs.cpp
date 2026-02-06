@@ -2,11 +2,12 @@
 using namespace std;
 
 static constexpr int N = 8;
-static constexpr int M = 28;
+static constexpr int M = 28;     
 static constexpr int K = 5;
+static constexpr int S = 56;     
+static constexpr int E5 = 10; 
 
-static int A[10], B[10];
-static bool bA[11], bB[11], AB[11]; //vectori de frecventa dar bool
+static bool A[11]; //vectori de frecventa dar bool
 
 
 struct subgraphState{
@@ -15,21 +16,17 @@ struct subgraphState{
 };
 
 
-void createBoolPartitions(const vector<int>& pA, const vector<int>& pB){
-    memset(bA, 0, sizeof(bA));
-    memset(bB, 0, sizeof(bB));
-    memset(AB,0, sizeof(AB));
-    for (int x : pA) 
-        bA[x] = true;
-    for (int x : pB) 
-        bB[x] = true;
-    for (int i = 0; i <= 10; ++i) 
-        AB[i] = bA[i] || bB[i];
+void createBoolPartition(){
+    memset(A, 0, sizeof(A));
+    int part[] = {0,2,3,5,6,7,8,9};
+    for (int x : part) 
+        A[x] = true;
 }
 
-u_int64_t edgeToIndex(pair<int,int> e){
+uint64_t edgeToIndex(pair<int,int> e){
     int u = e.first;
     int v = e.second;
+    if(u > v) std::swap(u,v);
     return (u*(2*N-u-1)/2)+(v-u-1);
 }
 
@@ -46,19 +43,15 @@ pair<int,int> indexToEdge(uint64_t idx){
 }
 
 bool checkEdge(uint64_t &G, uint64_t idx){
-    return ((G & (1ULL<<idx))!=0);
+    return (G >> idx) & 1ULL;
 }
 
-uint64_t addEdge(uint64_t &G, uint64_t idx){
-    if(!checkEdge(G,idx)) 
-        return (G + (1ULL<< idx));
-    return G;
+void addEdge(uint64_t &G, uint64_t idx){
+    G |= (1ULL << idx);
 }
 
-uint64_t removeEdge(uint64_t &G, uint64_t idx){
-    if(checkEdge(G,idx)) 
-        return (G - (1ULL<< idx));
-    return G;
+void removeEdge(uint64_t &G, uint64_t idx){
+    G &= ~(1ULL << idx);
 }
 
 vector<pair<int,int>> computeEdges() {
@@ -119,115 +112,203 @@ static vector<vector<int>> computeMatrixEdgeSubgraphs(const vector<pair<int,int>
     return res;
 }
 
-static bool checkPartition(const subgraphState& s, const bool partition[11]) {
-    int l = s.edges;
-    int h = s.edges + s.undecided;
-    l = max(l, 0);
-    h = min(h, 10);
-    for (int i = l; i <= h; i++)
-        if (partition[i]) 
+bool checkPossibleA(const subgraphState& s){
+    int l = max(0, s.edges);
+    int h = min(10, s.edges + s.undecided);
+    for (int i = l; i <= h; i++) 
+        if (A[i]) 
             return true;
     return false;
 }
 
+bool checkPossibleB(const subgraphState& s){
+    int l = max(0, s.edges);
+    int h = min(10, s.edges + s.undecided);
+    for (int i = l; i <= h; i++) 
+        if (!A[i]) 
+            return true;
+    return false;
+}
 
-bool initialiseGraph(const vector<pair<int,int>>& f, vector<subgraphState>& subgraphs, const vector<vector<int>>& matrixSubgraphs,  uint64_t& mask, vector<uint8_t>& fixedEdges){
-    fixedEdges.assign(M,0);
-    mask = 0;
+bool checkA(const subgraphState& s){
+    return (s.undecided == 0) && A[s.edges];
+}
 
-    for(auto [u,v] : f){
+bool checkB(const subgraphState& s){
+    return (s.undecided == 0) && !A[s.edges];
+}
+
+vector<int8_t> buildFixedEdges(const vector<pair<int,int>>& forcedEdge, const vector<pair<int,int>>& forcedNonEdge){
+    vector<int8_t> res(M, -1);
+    for (auto [u,v] : forcedEdge) {
         int idx = edgeToIndex({u,v});
-        if(idx < 0)
-            cerr << "Problem in initialiseGraph - wrong indexing";
-        
-        if(fixedEdges[idx]) continue;
-        fixedEdges[idx] = 1;
-        addEdge(mask,idx);
+        res[idx] = 1;
+    }
+    for (auto [u,v] : forcedNonEdge) {
+        int idx = edgeToIndex({u,v});
+        res[idx] = 0;
+    }
+    return res;
+}
 
-        for(int i : matrixSubgraphs[idx]){
-            subgraphs[i].undecided -= 1;
-            subgraphs[i].edges += 1;
-            if (!checkPartition(subgraphs[i], AB)) 
-                return false;
-            if (subgraphs[i].undecided == 0 && !AB[subgraphs[i].edges]) 
-                return false;
+bool partitionsStillCompatible(const subgraphState& g, const subgraphState& h) {
+    bool a = checkPossibleA(g) && checkPossibleA(h);
+    bool b = checkPossibleB(g) && checkPossibleB(h);
+    return a || b;
+}
+
+struct Result {
+    bool found = false;
+    uint64_t Gmask = 0;
+    uint64_t Hmask = 0;
+};
+
+Result dfs(int pos, const vector<vector<int>>& matrixSubgraphs, const vector<int8_t>& constraintsG, uint64_t& Gmask, 
+           uint64_t& Hmask, bool different, vector<subgraphState>& Gstates, vector<subgraphState>& Hstates){
+    
+    if (pos == M) {
+        if (!different)
+            return {};
+        bool someGA = false;
+        bool someGB =false;
+        for (int si = 0; si < Gstates.size(); ++si) {
+            bool gA = checkA(Gstates[si]);
+            bool gB = checkB(Gstates[si]);
+            bool hA = checkA(Hstates[si]);
+            bool hB = checkB(Hstates[si]);
+                if (!((gA && hA) || (gB && hB))) 
+                    return {};
+                if (gA) 
+                    someGA = true;
+                if (gB) 
+                    someGB = true;
+            }
+            if (!someGA || !someGB) 
+                return {};
+
+            return {true, Gmask, Hmask};
+        }
+
+    int constraint = constraintsG[pos];
+    int pos1G = 0;
+    int pos2G = 1;
+
+    if (constraint == 0){ 
+        pos1G = 0;
+        pos2G = 0; 
+    }
+    else if (constraint == 1){ 
+        pos1G = 1;
+        pos2G = 1; 
+    }
+
+    const vector<int>& affected = matrixSubgraphs[pos];
+
+    for (int i = pos1G; i <= pos2G; i++) {
+        if (i) 
+            addEdge(Gmask, pos); 
+        else 
+            removeEdge(Gmask, pos);
+        for (int si : affected) {
+            Gstates[si].undecided -= 1;
+            if (i)
+                Gstates[si].edges += 1;
+        }
+
+        for (int j = 0; j <= 1; j++) {
+            bool newDiff = different || (i != j);
+            if (j) 
+                addEdge(Hmask, pos); 
+            else 
+                removeEdge(Hmask, pos);
+            for (int si : affected) {
+                Hstates[si].undecided -= 1;
+                if (j)
+                    Hstates[si].edges += 1;
+            }
+
+            bool ok = true;
+            for (int si : affected) {
+                if (!partitionsStillCompatible(Gstates[si], Hstates[si])){
+                    ok = false; 
+                    break; }
+            }
+            if (ok) {
+                auto res = dfs(pos + 1, matrixSubgraphs, constraintsG, Gmask, Hmask, newDiff, Gstates, Hstates);
+                if (res.found) 
+                    return res;
+            }
+
+            for (int si : affected) {
+                if (j)
+                    Hstates[si].edges -= 1;
+                Hstates[si].undecided += 1;
+            }
+        }
+
+        for (int si : affected) {
+            if (i) Gstates[si].edges -= 1;
+            Gstates[si].undecided += 1;
         }
     }
-    return true;
+    return {};
 }
 
-
-static void findEquivalentGraphs(){
-
-}
-
-int main(){
-    int a = edgeToIndex({1,2});
-    cout<<a<<" ";
-    pair<int,int> b = indexToEdge(a);
-    cout<<b.first<<" "<<b.second;
-    cout<<endl;
-
-    createBoolPartitions({0,2,3,5,6,7,8,9}, {1,4,10});
-
-    auto subgraphMasks = computeSubgraphs();
-    int S = subgraphMasks.size();
-    auto states = initialiseState(S);
-
-    cout << "Number of 5-vertex induced subgraphs: " << S << " \n";
-
-    auto edges = computeEdges();
-    auto matrixSubgraphs = computeMatrixEdgeSubgraphs(edges, subgraphMasks);
-
-    vector<pair<int,int>> forced = {
-        {0,1},{0,2},{0,3},{0,4},
-        {1,2},{1,3},{1,4},
-        {2,3},{2,4},
-        {3,4}
-    };
-
-    uint64_t Gmask = 0;
-    vector<uint8_t> fixedEdges;
-
-    bool ok = initialiseGraph(forced, states, matrixSubgraphs, Gmask, fixedEdges);
-    if (!ok) {
-        cout << "initialiseGraph failed.\n";
-        return 0;
-    }
-
-    cout << "Forced edges present check:\n";
-    int presentCount = 0;
-    for (auto [u,v] : forced) {
-        int idx = (int)edgeToIndex({u,v});
-        bool present = (Gmask & (1ULL << idx)) != 0;
-        cout << "(" << u << "," << v << ") idx=" << idx
-             << " present=" << present << "\n";
-        if (present) presentCount++;
-    }
-    cout << "Confirmed present: " << presentCount << " / " << forced.size() << "\n\n";
-
-    cout << "All edges in Gmask:\n";
+void printMaskEdges(const char* name, uint64_t mask) {
+    cout << name << " edges:\n";
+    int cnt = 0;
+    for (int i = 0; i < M; i++)
+        if ((mask >> i) & 1ULL) 
+            cnt++;
+    cout << "# of edge = " << cnt << "\n";
     for (int i = 0; i < M; ++i) {
-        if (Gmask & (1ULL << i)) {
-            auto e = indexToEdge((uint64_t)i);
+        if ((mask >> i) & 1ULL) {
+            auto e = indexToEdge(i);
             cout << "(" << e.first << "," << e.second << ") ";
         }
     }
     cout << "\n\n";
+}
 
-    int targetMask = (1<<0)|(1<<1)|(1<<2)|(1<<3)|(1<<4);
-    int targetIndex = -1;
-    for (int si = 0; si < S; ++si) {
-        if (subgraphMasks[si] == targetMask) { targetIndex = si; break; }
-    }
-    if (targetIndex != -1) {
-        cout << "State for induced subgraph on {0,1,2,3,4}:\n";
-        cout << "edges=" << states[targetIndex].edges
-             << " undecided=" << states[targetIndex].undecided << "\n";
-        cout << "(Expected edges=10, undecided=0 for K5 forced)\n";
-    } else {
-        cout << "Did not find target 5-set mask for {0,1,2,3,4} (unexpected).\n";
+void findEquivalentGraphs(const vector<vector<int>>& matrixSubgraphs, int S, const vector<int8_t>& constraintsG){
+    auto Gstates = initialiseState(S);
+    auto Hstates = initialiseState(S);
+
+    uint64_t Gmask = 0, Hmask = 0;
+    Result res = dfs(0, matrixSubgraphs, constraintsG, Gmask, Hmask, false, Gstates, Hstates);
+
+    if (!res.found) {
+        cout << "No pair (G,H) found.\n";
+        return;
     }
 
+    cout << "Found G and H equivalent but not equal!\n";
+
+    printMaskEdges("G", res.Gmask);
+    printMaskEdges("H", res.Hmask);
+}
+
+
+int main(){
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    createBoolPartition();
+    vector<int> subgraphMasks = computeSubgraphs();
+    vector<pair<int,int>> edges = computeEdges();
+    vector<vector<int>> matrixSubgraphs = computeMatrixEdgeSubgraphs(edges, subgraphMasks);
+
+    vector<pair<int,int>> forcedPresentG = {
+        {0,1},{1,2},{2,3},{3,4}
+    };
+
+    vector<pair<int,int>> forcedAbsentG = {
+        {0,2},{0,3},{0,4},{1,3},{1,4},{2,4}
+    };
+
+    auto constrainsG = buildFixedEdges(forcedPresentG, forcedAbsentG);
+
+    findEquivalentGraphs(matrixSubgraphs, S, constrainsG);
+    
     return 0;
 }
