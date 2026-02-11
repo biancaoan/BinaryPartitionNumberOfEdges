@@ -2,10 +2,10 @@
 using namespace std;
 
 static constexpr int N = 8;
-static constexpr int M = 28;     
+static constexpr int M = 28;
 static constexpr int K = 5;
-static constexpr int S = 56;     
-static constexpr int E5 = 10; 
+static constexpr int S = 56;
+static constexpr int E5 = 10;
 
 static bool A[11]; //vectori de frecventa dar bool
 
@@ -16,11 +16,10 @@ struct subgraphState{
 };
 
 
-void createBoolPartition(){
+void createBoolPartition(vector<int> a){
     memset(A, 0, sizeof(A));
-    int part[] = {0,2,3,5,6,7,8,9};
-    for (int x : part) 
-        A[x] = true;
+    for (int i = 0; i < a.size(); i++) 
+        A[a[i]] = true;
 }
 
 uint64_t edgeToIndex(pair<int,int> e){
@@ -288,27 +287,45 @@ void findEquivalentGraphs(const vector<vector<int>>& matrixSubgraphs, int S, con
     printMaskEdges("H", res.Hmask);
 }
 
-
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
-
-    createBoolPartition();
+void solveForEachPartition(vector<int> a){
+    createBoolPartition(a);
     vector<int> subgraphMasks = computeSubgraphs();
     vector<pair<int,int>> edges = computeEdges();
     vector<vector<int>> matrixSubgraphs = computeMatrixEdgeSubgraphs(edges, subgraphMasks);
 
     vector<pair<int,int>> forcedPresentG = {
-        {0,1},{1,2},{2,3},{3,4}
+        {0,1}
     };
 
     vector<pair<int,int>> forcedAbsentG = {
-        {0,2},{0,3},{0,4},{1,3},{1,4},{2,4}
+        {0,2},{0,3},{0,4},{1,2},{1,3},{1,4},{2,3},{2,4},{3,4}
     };
 
     auto constrainsG = buildFixedEdges(forcedPresentG, forcedAbsentG);
 
     findEquivalentGraphs(matrixSubgraphs, S, constrainsG);
     
+}
+
+int main(){
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    vector<int> a = {0, 6, 9};
+    vector<int> c = {2, 3, 5, 7, 8};
+    int n = c.size();
+
+    for (int i = 0; i < (1 << n); i++){
+        vector<int> ca = a;
+        for (int j = 0; j < n; j++){
+            if ((i >> j) & 1){
+                ca.push_back(c[j]);
+            }
+        }
+        for(auto x : ca)
+            cout<<x<<" ";
+        cout<<endl;
+        solveForEachPartition(ca);
+    }
     return 0;
 }
