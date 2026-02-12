@@ -1,4 +1,5 @@
 #include <bits/stdc++.h>
+#include "exportResults.hpp"
 using namespace std;
 
 static constexpr int N = 8;
@@ -148,6 +149,12 @@ bool checkCliqueOrIndSet(const subgraphState& g){
     return (g.undecided == 0) && (g.edges == 0 || g.edges == E5);
 }
 
+struct Output {
+    vector<int> partition;
+    vector<pair<int,int>> g;
+    vector<pair<int,int>> h;
+};
+
 struct Result {
     bool found = false;
     uint64_t Gmask = 0;
@@ -264,7 +271,7 @@ void printMaskEdges(const char* name, uint64_t mask) {
     cout << "\n\n";
 }
 
-void findEquivalentGraphs(const vector<vector<int>>& matrixSubgraphs, int S){
+void findEquivalentGraphs(const vector<vector<int>>& matrixSubgraphs, int S, const vector<int>& partition, vector<Output>& resVect){
     auto Gstates = initialiseState(S);
     auto Hstates = initialiseState(S);
 
@@ -276,19 +283,31 @@ void findEquivalentGraphs(const vector<vector<int>>& matrixSubgraphs, int S){
         return;
     }
 
+    Output o;
+    o.partition = partition;
+
+    for (int i = 0; i < M; ++i) {
+        if ((res.Gmask >> i) & 1ULL)
+            o.g.push_back(indexToEdge(i));
+        if ((res.Hmask >> i) & 1ULL)
+            o.h.push_back(indexToEdge(i));
+    }
+
+    resVect.push_back(o);
+
     cout << "Found G and H equivalent but not equal!\n";
 
     printMaskEdges("G", res.Gmask);
     printMaskEdges("H", res.Hmask);
 }
 
-void solveForEachPartition(vector<int> a){
+void solveForEachPartition(vector<int> a, vector<Output>& result){
     createBoolPartition(a);
     vector<int> subgraphMasks = computeSubgraphs();
     vector<pair<int,int>> edges = computeEdges();
     vector<vector<int>> matrixSubgraphs = computeMatrixEdgeSubgraphs(edges, subgraphMasks);
 
-    findEquivalentGraphs(matrixSubgraphs, S);
+    findEquivalentGraphs(matrixSubgraphs, S, a, result);
     
 }
 
@@ -296,12 +315,14 @@ int main(){
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
+    vector<Output> resultGraphs;
+
     vector<int> a = {0, 6, 9};
     vector<int> c = {2, 3, 5, 7, 8};
     int n = c.size();
 
     for (int i = 0; i < (1 << n); i++){
-        if (i == 22) continue;
+       // if (i == 22) continue;
         vector<int> ca = a;
         for (int j = 0; j < n; j++){
             if ((i >> j) & 1){
@@ -311,7 +332,9 @@ int main(){
         for(auto x : ca)
             cout<<x<<" ";
         cout<<endl;
-        solveForEachPartition(ca);
+        solveForEachPartition(ca, resultGraphs);
     }
+    writeResultsToJson(resultGraphs, "results.json");
+    cout << "Number of partitions: " << resultGraphs.size() << "\n";
     return 0;
 }
